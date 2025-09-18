@@ -6,64 +6,55 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <cstdlib>
+#include <ctime>
 
 #include "sorting.h"
 
-const size_t STRNUM = 5520;
 
-size_t FileSize(const char* filename);
+struct TextParams {
+    size_t length;
+    size_t number_of_strings;
+    char* buffer;
+    LineParams** text;
+
+};
+
+
+size_t GetFileSize(const char* filename);
+void FillTextInfo(TextParams* text_info, const char* filename, size_t filesize);
 char* CreateAndFillBuffer(const char* filename, size_t* result_length, size_t filesize);
-StrPar** CreateAndFillText(char* buffer, size_t length);
-StrPar** CreateTextCopy(StrPar** text);
-
-
-
+LineParams** AllocateText(size_t number_of_strings);
+LineParams** CreateAndFillText(char* buffer, size_t length, size_t number_of_strings);
+void AddVariantsOfSortedTextInFile(const char* result_filename, TextParams* text_info);
+void WriteDichInFile(FILE* result_file, TextParams* text_info);
+void WriteResultInFile(FILE* result_f, TextParams* text_info);
+void PrintLine(LineParams* str_params, FILE* result_file);
+void Destruct(TextParams* text_info);
 
 
 int main() {
 
     const char* filename = "onegin.txt";
     const char* result = "processed_text.txt";
-    size_t filesize = FileSize(filename);
-    size_t length = 0;
 
-    char* buffer = CreateAndFillBuffer(filename, &length, filesize);
+    size_t filesize = GetFileSize(filename);
 
-    StrPar** text = CreateAndFillText(buffer, length);
-    StrPar** text_for_rs = CreateTextCopy(text);
-    StrPar** text_for_ls = CreateTextCopy(text);
+    TextParams text_info = {0, 5520, nullptr, nullptr};
+    FillTextInfo(&text_info, filename, filesize);
 
+    AddVariantsOfSortedTextInFile(result, &text_info);
 
-    merge_sort(text, STRNUM);
-    FILE* result_f = fopen(result, "w");
-
-    for (size_t i = 0; i < STRNUM; i++) {
-        for (size_t j = 0; j < text[i]->len; j++){
-            fputc((text[i]->str)[j], result_f);
-        }
-    }
-
-
-
-    free(buffer);
-    for (size_t i = 0; i < STRNUM; i++) {
-        free(text[i]);
-        free(text_for_rs[i]);
-        free(text_for_ls[i]);
-    }
-    free(text);
-    free(text_for_rs);
-    free(text_for_ls);
+    Destruct(&text_info);
     return 0;
 }
 
 
+size_t GetFileSize(const char* filename) {
 
+    assert(filename != nullptr);
 
-
-
-size_t FileSize(const char* filename) {
-    struct stat st;
+    struct stat st;//////off_t
 
     if (stat(filename, &st) == 0) {
         size_t filesize = st.st_size;
@@ -74,8 +65,21 @@ size_t FileSize(const char* filename) {
     return 0;
 }
 
+void FillTextInfo(TextParams* text_info, const char* filename, size_t filesize) {
+
+    assert(filename  != nullptr);
+    assert(text_info != nullptr);
+
+    size_t* length_ptr = &(text_info->length);
+
+    text_info->buffer = CreateAndFillBuffer(filename, length_ptr, filesize);
+    text_info->text   = CreateAndFillText(text_info->buffer, *length_ptr, text_info->number_of_strings);
+}
 
 char* CreateAndFillBuffer(const char* filename, size_t* result_length, size_t filesize) {
+
+    assert(filename      != nullptr);
+    assert(result_length != nullptr);
 
     char* buffer = (char*)calloc(filesize+1, sizeof(char));
     int descriptor = open(filename, O_RDONLY);
@@ -88,25 +92,36 @@ char* CreateAndFillBuffer(const char* filename, size_t* result_length, size_t fi
 
     buffer[length] = '\0';
 
-    *result_length = (size_t)length + 1; //Нужно ли?
+    *result_length = (size_t)length + 1;
 
     close(descriptor);
 
     return buffer;
-
 }
 
+LineParams** AllocateText(size_t number_of_strings) {
 
-StrPar** CreateAndFillText(char* buffer, size_t length) {
-    StrPar** text = (StrPar**)calloc(STRNUM, sizeof(StrPar*));
-    for (size_t i = 0; i < STRNUM; i++) {
-        text[i] = (StrPar*)calloc(STRNUM, sizeof(StrPar));
+    LineParams** text = (LineParams**)calloc(number_of_strings, sizeof(LineParams*));
+
+    for (size_t i = 0; i < number_of_strings; i++) {
+        text[i] = (LineParams*)calloc(number_of_strings, sizeof(LineParams));
     }
 
+    return text;
+}
+
+LineParams** CreateAndFillText(char* buffer, size_t length, size_t number_of_strings) {
+
+    assert(buffer != nullptr);
+
+    LineParams** text = AllocateText(number_of_strings);
 
     size_t strings_added = 0;
+
     char* prev_pointer_to_string = buffer;
-    for(char* pointer = buffer; pointer < buffer + length; pointer++) {
+    char* destination_pointer    = buffer + length;
+
+    for (char* pointer = buffer; pointer < destination_pointer; pointer++) {
 
         if (*pointer == '\n') {
 
@@ -114,25 +129,135 @@ StrPar** CreateAndFillText(char* buffer, size_t length) {
             text[strings_added]->len = (size_t)(pointer + 1 - prev_pointer_to_string);
 
             strings_added++;
-            prev_pointer_to_string = pointer + 1;
+            prev_pointer_to_string = pointer + 1; //offset caused by pointer's position on '\n'(L3 английский имеет свой эффект)
         }
     }
 
     return text;
-
 }
 
+void AddVariantsOfSortedTextInFile(const char* result_filename, TextParams* text_info) {
 
-StrPar** CreateTextCopy(StrPar** text) {
-    StrPar** text_copy = (StrPar**)calloc(STRNUM, sizeof(StrPar*));
-    for (size_t i = 0; i < STRNUM; i++) {
-        text_copy[i] = (StrPar*)calloc(STRNUM, sizeof(StrPar));
-        text_copy[i]->len = text[i]->len;
-        text_copy[i]->str = text[i]->str;
+    assert(result_filename != nullptr);
+    assert(text_info       != nullptr);
+
+    FILE* result_file = fopen(result_filename, "w");
+
+    size_t text_strings = text_info->number_of_strings;
+    LineParams** text_ptr = text_info->text;
+
+    MergeSort(text_ptr, text_strings, AlphabetLineComparator);
+    fputs("----------------------STRAIGHT_SORTING---------------------------------------\n\n", result_file);
+    WriteResultInFile(result_file, text_info);
+
+    qsort(text_ptr, text_strings, sizeof(LineParams*), ReversedAlphabetLineComparator);
+    fputs("----------------------WAYBACK_SORTING----------------------------------------\n\n", result_file);
+    WriteResultInFile(result_file, text_info);
+
+    qsort(text_ptr, text_strings, sizeof(LineParams*), PointerLineComparator);
+    fputs("----------------------ORIGINAL_ONEGIN----------------------------------------\n\n", result_file);
+    WriteResultInFile(result_file, text_info);
+
+    qsort(text_ptr, text_strings, sizeof(LineParams*), ReversedAlphabetLineComparator);
+    fputs("----------------------BREEEEEEEEEEEED----------------------------------------\n\n", result_file);
+    WriteDichInFile(result_file, text_info);
+
+
+    fclose(result_file);
+}
+
+void WriteResultInFile(FILE* result_file, TextParams* text_info) {
+
+    assert(result_file != nullptr);
+    assert(text_info   != nullptr);
+
+    size_t text_strings = text_info->number_of_strings;
+
+    for (size_t i = 0; i < text_strings; i++) {
+        PrintLine((text_info->text)[i], result_file);
     }
-    return text_copy;
 }
 
+void WriteDichInFile(FILE* result_file, TextParams* text_info) {// reading this is dangerous
 
+    assert(result_file != nullptr);
+    assert(text_info   != nullptr);
 
+    LineParams* block[14] = {nullptr};
+
+    srand(time(NULL));
+
+    size_t lines_num = text_info->number_of_strings;
+    LineParams** lines = text_info->text;
+
+    size_t a = 0;
+    size_t b = 0;
+    size_t c = 0;
+    size_t d = 0;
+    size_t e = 0;
+    size_t f = 0;
+    size_t g = 0;
+
+    for (size_t count = 0; count < 5; count++) {
+        a = rand() % lines_num;
+        b = rand() % lines_num;
+        c = rand() % lines_num;
+        d = rand() % lines_num;
+        e = rand() % lines_num;
+        f = rand() % lines_num;
+        g = rand() % lines_num;
+
+        block[0] = lines[a];
+        block[1] = lines[b];
+        block[2] = lines[a+1];
+        block[3] = lines[b+1];
+
+        block[4] = lines[c];
+        block[5] = lines[c+1];
+        block[6] = lines[d];
+        block[7] = lines[d+1];
+
+        block[8]  = lines[e];
+        block[9]  = lines[f];
+        block[10] = lines[f+1];
+        block[11] = lines[e+1];
+
+        block[12] = lines[g];
+        block[13] = lines[g+1];
+
+        for (size_t i = 0; i < 14; i++) {
+            PrintLine(block[i], result_file);
+        }
+        fputs("\n", result_file);
+    }
+}
+
+void PrintLine(LineParams* str_params, FILE* result_file) {
+
+    assert(result_file != nullptr);
+    assert(str_params  != nullptr);
+
+    size_t string_length = str_params->len;
+
+    for (size_t j = 0; j < string_length; j++){
+        fputc((str_params->str)[j], result_file);
+    }
+}
+
+void Destruct(TextParams* text_info) {
+
+    assert(text_info != nullptr);
+
+    free(text_info->buffer);
+    free(text_info->text);
+
+    LineParams** lines = text_info->text;
+    size_t lines_num = text_info->number_of_strings;
+
+    for (size_t index = 0; index < lines_num; index++) {
+        free(lines[index]);
+    }
+
+    free(lines);
+}
 
